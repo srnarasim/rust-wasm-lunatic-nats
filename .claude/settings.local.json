@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo:*)",
+      "Bash(grep:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:crates.io)",
+      "WebFetch(domain:docs.rs)",
+      "Bash(timeout 5s cargo run)",
+      "Bash(find:*)",
+      "Bash(timeout 10s cargo run)",
+      "Bash(rustup target:*)",
+      "WebFetch(domain:wasmcloud.com)",
+      "WebFetch(domain:lib.rs)",
+      "Bash(lunatic run:*)"
+    ],
+    "deny": []
+  }
+}
