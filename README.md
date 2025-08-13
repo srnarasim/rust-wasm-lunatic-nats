@@ -26,79 +26,116 @@ A powerful Rust-based distributed agent system designed for WASM compilation usi
 
 ## 🏗️ Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                               Build Configurations                          │
-├─────────────────┬─────────────────────┬─────────────────────────────────────┤
-│   Native Build  │    WASM-Only Build  │    WASM + WebSocket NATS Build     │
-│   (Full NATS)   │    (No External     │    (WebSocket NATS Support)        │
-│                 │     Connectivity)   │                                     │
-└─────────────────┴─────────────────────┴─────────────────────────────────────┘
-                                         │
-┌─────────────────────────────────────────▼─────────────────────────────────────┐
-│                              Lunatic Runtime                                 │
-│                                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────────┐ │
-│  │                        Main Supervisor Process                          │ │
-│  │  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────────────────┐ │ │
-│  │  │ Agent Spawning  │ │ Health Monitor  │ │   Fault Recovery System     │ │ │
-│  │  └─────────────────┘ └─────────────────┘ └─────────────────────────────┘ │ │
-│  └─────┬───────────────┬───────────────┬───────────────┬───────────────────┘ │
-│        │               │               │               │                     │
-│  ┌─────▼─────┐   ┌─────▼─────┐   ┌─────▼─────┐   ┌─────▼─────┐               │
-│  │Agent A    │   │Agent B    │   │Agent C    │   │Agent N    │               │
-│  │Process    │   │Process    │   │Process    │   │Process    │               │
-│  │(WASM)     │   │(WASM)     │   │(WASM)     │   │(WASM)     │               │
-│  │           │   │           │   │           │   │           │               │
-│  │Ephemeral  │   │Ephemeral  │   │Ephemeral  │   │Ephemeral  │               │
-│  │State      │   │State      │   │State      │   │State      │               │
-│  └─────┬─────┘   └─────┬─────┘   └─────┬─────┘   └─────┬─────┘               │
-│        │               │               │               │                     │
-└────────┼───────────────┼───────────────┼───────────────┼─────────────────────┘
-         │               │               │               │
-         └─────┬─────────────────┬───────────────┬───────┘
-               │                 │               │
-    ┌──────────▼─────────────────▼───────────────▼──────────┐
-    │                Communication Layer                    │
-    │                                                       │
-    │ ┌─────────────────┐  ┌─────────────────────────────────┐ │
-    │ │Lunatic Mailboxes│  │      NATS Messaging             │ │
-    │ │(Local/Fast)     │  │                                 │ │
-    │ │                 │  │ ┌─────────────┐ ┌─────────────┐ │ │
-    │ │- Process-to-    │  │ │ Native TCP  │ │ WebSocket   │ │ │
-    │ │  Process        │  │ │ NATS Client │ │ NATS Client │ │ │
-    │ │- Supervisor     │  │ │             │ │ (WASM)      │ │ │
-    │ │  Commands       │  │ │- High Perf  │ │- Browser    │ │ │
-    │ │- State Sync     │  │ │- Full API   │ │  Compatible │ │ │
-    │ └─────────────────┘  │ └─────────────┘ └─────────────┘ │ │
-    └─────────────────────────────────────────────────────────┘
-                                    │
-          ┌─────────────────────────▼─────────────────────────┐
-          │            WebSocket Gateway (Optional)            │
-          │                                                   │
-          │ ┌─────────────────┐      ┌─────────────────────┐  │
-          │ │ Protocol        │◄────►│ TLS Termination     │  │
-          │ │ Translation     │      │ & Load Balancing    │  │
-          │ └─────────────────┘      └─────────────────────┘  │
-          └─────────────────────────┬─────────────────────────┘
-                                    │
-          ┌─────────────────────────▼─────────────────────────┐
-          │              NATS Server Cluster                  │
-          │                                                   │
-          │ ┌─────────────────┐ ┌─────────────────────────────┐ │
-          │ │ Subject-Based   │ │ JetStream & Persistence     │ │
-          │ │ Routing         │ │ (Future Enhancement)        │ │
-          │ └─────────────────┘ └─────────────────────────────┘ │
-          └─────────────────────────┬─────────────────────────────┘
-                                    │
-          ┌─────────────────────────▼─────────────────────────┐
-          │              Persistent Storage                    │
-          │                                                   │
-          │ ┌─────────────────┐    ┌─────────────────────────┐ │
-          │ │ In-Memory       │    │ File-Based Backend      │ │
-          │ │ Backend         │    │ (Configurable)          │ │
-          │ └─────────────────┘    └─────────────────────────┘ │
-          └─────────────────────────────────────────────────────┘
+``` mermaid
+%%{init: {
+    "theme": "default",
+    "themeVariables": {
+        "fontFamily": "Inter, Roboto, sans-serif",
+        "fontSize": "14px",
+        "primaryColor": "#E0F7FA",
+        "primaryBorderColor": "#00ACC1",
+        "primaryTextColor": "#004D40",
+        "secondaryColor": "#F1F8E9",
+        "secondaryBorderColor": "#7CB342",
+        "secondaryTextColor": "#33691E",
+        "tertiaryColor": "#FFF3E0",
+        "tertiaryBorderColor": "#FB8C00",
+        "tertiaryTextColor": "#E65100",
+        "storageColor": "#EDE7F6",
+        "storageBorderColor": "#5E35B1",
+        "storageTextColor": "#311B92",
+        "nodeBorderRadius": "8px"
+    }
+}}%%
+
+flowchart TB
+    %% --- Build Configurations ---
+    subgraph build["Build Configurations"]
+        style build fill:#E0F7FA,stroke:#00ACC1,stroke-width:2px,color:#004D40
+        native["Native Build<br/><small>(Full NATS)</small>"]
+        wasmOnly["WASM-Only Build<br/><small>(No External Connectivity)</small>"]
+        wasmNats["WASM + WebSocket NATS Build<br/><small>(WebSocket NATS Support)</small>"]
+    end
+
+    build --> runtime
+
+    %% --- Lunatic Runtime ---
+    subgraph runtime["Lunatic Runtime"]
+        style runtime fill:#F1F8E9,stroke:#7CB342,stroke-width:2px,color:#33691E
+        subgraph supervisor["Main Supervisor Process"]
+            spawn["Agent Spawning"]
+            health["Health Monitor"]
+            fault["Fault Recovery System"]
+        end
+
+        supervisor --> agentA
+        supervisor --> agentB
+        supervisor --> agentC
+        supervisor --> agentN
+
+        subgraph agentA["Agent A Process<br/><small>(WASM)</small>"]
+            stateA["Ephemeral State"]
+        end
+        subgraph agentB["Agent B Process<br/><small>(WASM)</small>"]
+            stateB["Ephemeral State"]
+        end
+        subgraph agentC["Agent C Process<br/><small>(WASM)</small>"]
+            stateC["Ephemeral State"]
+        end
+        subgraph agentN["Agent N Process<br/><small>(WASM)</small>"]
+            stateN["Ephemeral State"]
+        end
+    end
+
+    %% --- Communication Layer ---
+    agentA --> comm
+    agentB --> comm
+    agentC --> comm
+    agentN --> comm
+
+    subgraph comm["Communication Layer"]
+        style comm fill:#FFF3E0,stroke:#FB8C00,stroke-width:2px,color:#E65100
+        subgraph mailbox["Lunatic Mailboxes<br/><small>(Local / Fast)</small>"]
+            mailboxDetails["Process-to-Process<br/>Supervisor Commands<br/>State Sync"]
+        end
+        subgraph nats["NATS Messaging"]
+            subgraph tcpNats["Native TCP NATS Client"]
+                tcpDetails["High Performance<br/> Full API"]
+            end
+            subgraph wsNats["WebSocket NATS Client<br/><small>(WASM)</small>"]
+                wsDetails["Browser Compatible"]
+            end
+        end
+    end
+
+    comm --> wsGateway
+
+    %% --- WebSocket Gateway ---
+    subgraph wsGateway["WebSocket Gateway<br/><small>(Optional)</small>"]
+        style wsGateway fill:#FFF3E0,stroke:#FB8C00,stroke-width:2px,color:#E65100
+        proto["Protocol Translation"]
+        tls["TLS Termination &<br/>Load Balancing"]
+        proto <--> tls
+    end
+
+    wsGateway --> natsCluster
+
+    %% --- NATS Server Cluster ---
+    subgraph natsCluster["NATS Server Cluster"]
+        style natsCluster fill:#FFF3E0,stroke:#FB8C00,stroke-width:2px,color:#E65100
+        routing["Subject-Based Routing"]
+        jetstream["JetStream & Persistence<br/><small>(Future Enhancement)</small>"]
+    end
+
+    natsCluster --> storage
+
+    %% --- Persistent Storage ---
+    subgraph storage["Persistent Storage"]
+        style storage fill:#EDE7F6,stroke:#5E35B1,stroke-width:2px,color:#311B92
+        mem["In-Memory Backend"]
+        file["File-Based Backend<br/><small>(Configurable)</small>"]
+    end
+
 ```
 
 ## 📁 Project Structure
