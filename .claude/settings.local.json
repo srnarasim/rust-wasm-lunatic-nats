@@ -1,18 +1,20 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cargo:*)",
-      "Bash(grep:*)",
-      "WebFetch(domain:github.com)",
-      "WebFetch(domain:crates.io)",
-      "WebFetch(domain:docs.rs)",
-      "Bash(timeout 5s cargo run)",
-      "Bash(find:*)",
-      "Bash(timeout 10s cargo run)",
-      "Bash(rustup target:*)",
-      "WebFetch(domain:wasmcloud.com)",
-      "WebFetch(domain:lib.rs)",
-      "Bash(lunatic run:*)"
+      "Bash(echo $?)",
+      "Bash(git check-ignore:*)",
+      "Bash(echo:*)",
+      "Bash(chmod:*)",
+      "Bash(./deploy-docs.sh:*)",
+      "Bash(bash:*)",
+      "Bash(git stash:*)",
+      "Bash(npx vitepress build:*)",
+      "Bash(# Create a CDN subdirectory and move CDN files there\nmkdir -p cdn\nmv dataprism*.js cdn/\nmv dataprism*.map cdn/\nmv manifest.json cdn/\nmv duckdb-config.json cdn/\nmv assets cdn/\nmv workers cdn/\nmv _headers cdn/\nmv vp-icons.css cdn/)",
+      "Bash(# Move documentation to root\nmv docs/* .\nrmdir docs)",
+      "Bash(# Create a new index.html that redirects to docs subdirectory\ncat > cdn/index.html << ''EOF''\n<!DOCTYPE html>\n<html lang=\"\"en\"\">\n<head>\n    <meta charset=\"\"UTF-8\"\">\n    <meta name=\"\"viewport\"\" content=\"\"width=device-width, initial-scale=1.0\"\">\n    <title>DataPrism CDN</title>\n    <style>\n        body {\n            font-family: -apple-system, BlinkMacSystemFont, ''Segoe UI'', Roboto, sans-serif;\n            max-width: 800px;\n            margin: 0 auto;\n            padding: 2rem;\n            line-height: 1.6;\n            color: #333;\n            background: #f8f9fa;\n        }\n        .container {\n            background: white;\n            padding: 2rem;\n            border-radius: 8px;\n            box-shadow: 0 2px 10px rgba(0,0,0,0.1);\n        }\n        h1 { color: #2c3e50; margin-bottom: 1rem; }\n        h2 { color: #34495e; margin-top: 2rem; }\n        .highlight { background: #e8f5e8; padding: 1rem; border-radius: 4px; margin: 1rem 0; }\n        .code { background: #f4f4f4; padding: 0.5rem; border-radius: 4px; font-family: ''Courier New'', monospace; }\n        .button { \n            display: inline-block; \n            background: #3498db; \n            color: white; \n            padding: 0.5rem 1rem; \n            border-radius: 4px; \n            text-decoration: none; \n            margin: 0.5rem 0.5rem 0.5rem 0;\n        }\n        .button:hover { background: #2980b9; }\n        .nav { text-align: center; margin-bottom: 2rem; }\n        .nav a { margin: 0 1rem; }\n        .stats { display: flex; gap: 1rem; margin: 1rem 0; }\n        .stat { background: #ecf0f1; padding: 1rem; border-radius: 4px; flex: 1; text-align: center; }\n    </style>\n</head>\n<body>\n    <div class=\"\"container\"\">\n        <div class=\"\"nav\"\">\n            <a href=\"\"/\"\" class=\"\"button\"\">📚 Documentation</a>\n            <a href=\"\"/cdn/\"\" class=\"\"button\"\">📦 CDN</a>\n        </div>\n        \n        <h1>🚀 DataPrism CDN</h1>\n        <p>High-performance browser analytics powered by WebAssembly and DuckDB</p>\n        \n        <div class=\"\"stats\"\">\n            <div class=\"\"stat\"\">\n                <strong>Core Bundle</strong><br>\n                119KB (28KB gzipped)\n            </div>\n            <div class=\"\"stat\"\">\n                <strong>Plugin System</strong><br>\n                232KB (56KB gzipped)\n            </div>\n            <div class=\"\"stat\"\">\n                <strong>Browser Support</strong><br>\n                Chrome 90+, Firefox 88+, Safari 14+\n            </div>\n        </div>\n        \n        <h2>📦 CDN Usage</h2>\n        \n        <h3>ES Module (Recommended)</h3>\n        <div class=\"\"code\"\">\n&lt;script type=\"\"module\"\"&gt;<br>\n  import { DataPrismEngine } from \"\"https://srnarasim.github.io/DataPrism/cdn/dataprism.min.js\"\";<br>\n  <br>\n  const engine = new DataPrismEngine();<br>\n  await engine.initialize();<br>\n&lt;/script&gt;\n        </div>\n        \n        <h3>UMD Bundle</h3>\n        <div class=\"\"code\"\">\n&lt;script src=\"\"https://srnarasim.github.io/DataPrism/cdn/dataprism.umd.js\"\"&gt;&lt;/script&gt;<br>\n&lt;script&gt;<br>\n  const { DataPrismEngine } = DataPrism;<br>\n  const engine = new DataPrismEngine();<br>\n&lt;/script&gt;\n        </div>\n        \n        <h3>Plugin System</h3>\n        <div class=\"\"code\"\">\n&lt;script type=\"\"module\"\"&gt;<br>\n  import { createVisualizationPlugin } from \"\"https://srnarasim.github.io/DataPrism/cdn/dataprism-plugins.min.js\"\";<br>\n  <br>\n  const chartsPlugin = await createVisualizationPlugin(\"\"observable-charts\"\");<br>\n&lt;/script&gt;\n        </div>\n        \n        <h2>📚 Available Files</h2>\n        <ul>\n            <li><a href=\"\"dataprism.min.js\"\">dataprism.min.js</a> - Core ES Module (119KB)</li>\n            <li><a href=\"\"dataprism.umd.js\"\">dataprism.umd.js</a> - UMD Bundle (92KB)</li>\n            <li><a href=\"\"dataprism-plugins.min.js\"\">dataprism-plugins.min.js</a> - Plugin System (232KB)</li>\n            <li><a href=\"\"manifest.json\"\">manifest.json</a> - Asset manifest with integrity hashes</li>\n        </ul>\n        \n        <h2>🔗 Links</h2>\n        <a href=\"\"/\"\" class=\"\"button\"\">📚 Documentation</a>\n        <a href=\"\"https://github.com/srnarasim/DataPrism\"\" class=\"\"button\"\">🐙 GitHub</a>\n        <a href=\"\"https://www.npmjs.com/package/@dataprism/core\"\" class=\"\"button\"\">📦 NPM</a>\n        \n        <div class=\"\"highlight\"\">\n            <strong>⚡ Performance:</strong> Process millions of rows with WebAssembly and DuckDB, all in your browser!\n        </div>\n    </div>\n</body>\n</html>\nEOF)",
+      "Bash(npm run validate:*)",
+      "Bash(gh workflow:*)",
+      "Bash(git rebase:*)"
     ],
     "deny": []
   }

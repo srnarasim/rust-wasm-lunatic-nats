@@ -150,6 +150,9 @@ src/
 ├── wasm_nats.rs    # WebSocket NATS client for WASM environments
 └── supervisor.rs   # Lunatic supervisor implementation
 
+examples/
+└── sample_agent.rs # Sample agent demonstrating basic functionality
+
 docs/
 ├── ARCHITECTURE.md    # Detailed architecture documentation
 └── WASM_NATS_GUIDE.md # Complete WebSocket NATS integration guide
@@ -211,6 +214,45 @@ cargo test
 # Run demo application (works with/without NATS)
 cargo run
 ```
+
+### Running Examples
+
+#### Sample Agent Example
+
+The repository includes a sample agent demonstrating basic functionality:
+
+```bash
+# Install Lunatic runtime (required for examples)
+# Option 1: Using Cargo (recommended)
+cargo install lunatic-runtime
+
+# Option 2: Using Homebrew (macOS)
+# brew tap lunatic-solutions/lunatic
+# brew install lunatic
+
+# Option 3: Download pre-built binaries from GitHub releases
+# https://github.com/lunatic-solutions/lunatic/releases
+
+# Verify installation
+lunatic --version
+
+# Add WASM target
+rustup target add wasm32-wasip1
+
+# Build the sample agent example
+cargo build --example sample_agent --target=wasm32-wasip1 --no-default-features --features "wasm-only,logging"
+
+# Run the sample agent with Lunatic
+lunatic run target/wasm32-wasip1/debug/examples/sample_agent.wasm
+```
+
+The sample agent demonstrates:
+- ✅ Basic Lunatic WASM process execution
+- ✅ Agent state management with HashMap
+- ✅ Message processing simulation (increment, status update)
+- ✅ State key enumeration and inspection
+- ✅ JSON serialization for persistence simulation
+- ✅ Structured logging with emojis for clear output
 
 ### WASM Compilation
 

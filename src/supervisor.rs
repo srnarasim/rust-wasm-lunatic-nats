@@ -65,7 +65,7 @@ impl MessageHandler<AgentMessage> for AgentProcess {
         // Store the last message
         let key = format!("last_message_from_{}", message.from.0);
         state.state.insert(key, message.payload);
-    }
+    }spawn_agent_supervisor
 }
 
 impl MessageHandler<StateAction> for AgentProcess {
