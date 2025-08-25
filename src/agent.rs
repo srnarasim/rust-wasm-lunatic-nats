@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::{Result, Error};
 use crate::memory::MemoryBackend;
 use crate::nats_comm::NatsConnection;
+use crate::llm_client::{LLMClient, WorkflowStep};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentId(pub String);
@@ -50,6 +51,7 @@ pub struct AgentState {
     pub ephemeral_state: HashMap<String, serde_json::Value>,
     pub persistent_backend: Box<dyn MemoryBackend>,
     pub nats: Option<NatsConnection>,
+    pub llm_client: Option<LLMClient>,
 }
 
 impl AgentState {
@@ -59,11 +61,23 @@ impl AgentState {
             ephemeral_state: HashMap::new(),
             persistent_backend,
             nats: None,
+            llm_client: None,
         }
     }
 
     pub fn with_nats(mut self, nats: NatsConnection) -> Self {
         self.nats = Some(nats);
+        self
+    }
+
+    pub fn with_llm(mut self, llm_client: LLMClient) -> Self {
+        // Store LLM client configuration in persistent state for access across message handling
+        let llm_config = serde_json::json!({
+            "provider": llm_client.provider_name(),
+            "enabled": true
+        });
+        self.ephemeral_state.insert("llm_client_config".to_string(), llm_config);
+        self.llm_client = Some(llm_client);
         self
     }
 
@@ -164,6 +178,11 @@ impl AgentState {
             return self.handle_state_action(state_action).await;
         }
 
+        // Check if this is an LLM message
+        if message.payload.get("llm_task").is_some() {
+            return self.handle_llm_message(message).await;
+        }
+
         // Handle NATS forwarding for inter-node communication
         if let Some(ref nats) = self.nats {
             if message.to.0 != self.id.0 {
@@ -213,6 +232,85 @@ impl AgentState {
                     log::debug!("Agent {} received unknown message type: {:?}", self.id.0, msg_type);
                 }
             }
+        }
+
+        Ok(())
+    }
+
+    /// LLM-enhanced message processing
+    pub async fn handle_llm_message(&mut self, message: Message) -> Result<()> {
+        log::debug!("Processing LLM message: {}", message.id);
+
+        if let Some(ref llm_client) = self.llm_client {
+            match message.payload.get("llm_task").and_then(|v| v.as_str()) {
+                Some("summarize") => {
+                    if let Some(data) = message.payload.get("data") {
+                        let data_array = data.as_array().unwrap_or(&vec![data.clone()]).clone();
+                        let data_array_len = data_array.len();
+                        let summary = llm_client.summarize_data(data_array).await?;
+                        
+                        // Store summary in state
+                        self.ephemeral_state.insert("last_summary".to_string(), serde_json::json!(summary));
+                        
+                        // Publish summary via NATS if configured
+                        if let Some(ref nats) = self.nats {
+                            let summary_msg = Message {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                from: self.id.clone(),
+                                to: AgentId("summary_results".to_string()),
+                                payload: serde_json::json!({
+                                    "type": "summary_result",
+                                    "summary": summary,
+                                    "original_data_count": data_array_len
+                                }),
+                                timestamp: chrono::Utc::now().timestamp() as u64,
+                            };
+                            
+                            let subject = "results.summaries";
+                            let data = serde_json::to_vec(&summary_msg)?;
+                            nats.publish(subject, &data).await.map_err(|e| 
+                                Error::Custom(format!("Failed to publish summary: {}", e)))?;
+                        }
+
+                        log::info!("Agent {} completed summarization task", self.id.0);
+                    }
+                }
+                Some("plan_workflow") => {
+                    if let Some(task_desc) = message.payload.get("task_description").and_then(|v| v.as_str()) {
+                        let agents = message.payload.get("available_agents")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                            .unwrap_or_else(Vec::new);
+
+                        let workflow = llm_client.plan_workflow(task_desc, agents).await?;
+                        
+                        // Store workflow plan
+                        self.ephemeral_state.insert("workflow_plan".to_string(), serde_json::to_value(&workflow)?);
+                        
+                        log::info!("Agent {} created workflow plan with {} steps", self.id.0, workflow.len());
+                    }
+                }
+                Some("reason") => {
+                    if let Some(prompt) = message.payload.get("prompt").and_then(|v| v.as_str()) {
+                        let context = message.payload.get("context")
+                            .and_then(|v| v.as_object())
+                            .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                            .unwrap_or_else(HashMap::new);
+
+                        let reasoning_result = llm_client.reasoning_request(prompt, context).await?;
+                        
+                        // Store reasoning result
+                        self.ephemeral_state.insert("last_reasoning".to_string(), serde_json::json!(reasoning_result));
+                        
+                        log::info!("Agent {} completed reasoning task", self.id.0);
+                    }
+                }
+                _ => {
+                    log::debug!("Unknown LLM task type in message: {:?}", message.payload.get("llm_task"));
+                }
+            }
+        } else {
+            log::warn!("Agent {} received LLM message but no LLM client configured", self.id.0);
         }
 
         Ok(())
@@ -351,5 +449,147 @@ mod tests {
 
         // Verify the state was updated
         assert!(agent_state.ephemeral_state.contains_key("message_key"));
+    }
+
+    #[cfg(feature = "nats")]
+    #[tokio::test]
+    async fn test_agent_with_llm_integration() {
+        use crate::llm_client::create_llm_client;
+        
+        let backend = Box::new(InMemoryBackend::new());
+        let llm_client = create_llm_client().unwrap();
+        let mut agent_state = AgentState::new(
+            AgentId("llm_test_agent".to_string()),
+            backend,
+        ).with_llm(llm_client);
+
+        // Test LLM summarization message
+        let llm_message = Message {
+            id: "llm_test_msg".to_string(),
+            from: AgentId("test".to_string()),
+            to: AgentId("llm_test_agent".to_string()),
+            payload: serde_json::json!({
+                "llm_task": "summarize",
+                "data": [
+                    {"title": "Test Article", "content": "Test content"},
+                    {"title": "Another Article", "content": "More content"}
+                ]
+            }),
+            timestamp: chrono::Utc::now().timestamp() as u64,
+        };
+
+        // Process the LLM message
+        agent_state.handle_llm_message(llm_message).await.unwrap();
+
+        // Verify the summary was stored
+        assert!(agent_state.ephemeral_state.contains_key("last_summary"));
+        let summary = agent_state.ephemeral_state.get("last_summary").unwrap();
+        assert!(summary.as_str().unwrap().len() > 0);
+    }
+
+    #[cfg(feature = "nats")]
+    #[tokio::test]
+    async fn test_agent_llm_workflow_planning() {
+        use crate::llm_client::create_llm_client;
+        
+        let backend = Box::new(InMemoryBackend::new());
+        let llm_client = create_llm_client().unwrap();
+        let mut agent_state = AgentState::new(
+            AgentId("workflow_agent".to_string()),
+            backend,
+        ).with_llm(llm_client);
+
+        // Test workflow planning message
+        let workflow_message = Message {
+            id: "workflow_test_msg".to_string(),
+            from: AgentId("test".to_string()),
+            to: AgentId("workflow_agent".to_string()),
+            payload: serde_json::json!({
+                "llm_task": "plan_workflow",
+                "task_description": "Process data from multiple sources",
+                "available_agents": ["collector", "processor", "summarizer"]
+            }),
+            timestamp: chrono::Utc::now().timestamp() as u64,
+        };
+
+        // Process the workflow planning message
+        agent_state.handle_llm_message(workflow_message).await.unwrap();
+
+        // Verify the workflow plan was stored
+        assert!(agent_state.ephemeral_state.contains_key("workflow_plan"));
+        let workflow_plan = agent_state.ephemeral_state.get("workflow_plan").unwrap();
+        
+        // Should be able to deserialize to WorkflowStep array
+        let steps: Vec<WorkflowStep> = serde_json::from_value(workflow_plan.clone()).unwrap();
+        assert!(steps.len() > 0);
+        assert!(!steps[0].step_id.is_empty());
+    }
+
+    #[cfg(feature = "nats")]
+    #[tokio::test]
+    async fn test_agent_llm_reasoning() {
+        use crate::llm_client::create_llm_client;
+        
+        let backend = Box::new(InMemoryBackend::new());
+        let llm_client = create_llm_client().unwrap();
+        let mut agent_state = AgentState::new(
+            AgentId("reasoning_agent".to_string()),
+            backend,
+        ).with_llm(llm_client);
+
+        // Test reasoning message
+        let reasoning_message = Message {
+            id: "reasoning_test_msg".to_string(),
+            from: AgentId("test".to_string()),
+            to: AgentId("reasoning_agent".to_string()),
+            payload: serde_json::json!({
+                "llm_task": "reason",
+                "prompt": "What is the optimal strategy for distributed processing?",
+                "context": {
+                    "domain": "distributed_systems",
+                    "constraints": ["latency", "scalability"]
+                }
+            }),
+            timestamp: chrono::Utc::now().timestamp() as u64,
+        };
+
+        // Process the reasoning message
+        agent_state.handle_llm_message(reasoning_message).await.unwrap();
+
+        // Verify the reasoning result was stored
+        assert!(agent_state.ephemeral_state.contains_key("last_reasoning"));
+        let reasoning_result = agent_state.ephemeral_state.get("last_reasoning").unwrap();
+        assert!(reasoning_result.as_str().unwrap().len() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_agent_handles_llm_message_without_client() {
+        let backend = Box::new(InMemoryBackend::new());
+        let mut agent_state = AgentState::new(
+            AgentId("no_llm_agent".to_string()),
+            backend,
+        );
+        // Note: No LLM client added
+
+        // Test that agent handles LLM message gracefully when no LLM client is configured
+        let llm_message = Message {
+            id: "no_llm_test_msg".to_string(),
+            from: AgentId("test".to_string()),
+            to: AgentId("no_llm_agent".to_string()),
+            payload: serde_json::json!({
+                "llm_task": "summarize",
+                "data": [{"title": "Test", "content": "Content"}]
+            }),
+            timestamp: chrono::Utc::now().timestamp() as u64,
+        };
+
+        // Should not panic or error, just log a warning
+        let result = agent_state.handle_llm_message(llm_message).await;
+        assert!(result.is_ok());
+        
+        // Should not have created any LLM-related state
+        assert!(!agent_state.ephemeral_state.contains_key("last_summary"));
+        assert!(!agent_state.ephemeral_state.contains_key("workflow_plan"));
+        assert!(!agent_state.ephemeral_state.contains_key("last_reasoning"));
     }
 }

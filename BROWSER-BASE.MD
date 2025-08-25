@@ -1,95 +1,96 @@
-# PRP: LLM-Guided Lunatic Agent for Cloud Browser Automation via BrowserBase
+# PRP: LLM-Augmented Distributed Agent System on Rust WASM Lunatic NATS
 
 ## The Value
 
-Enable secure, scalable, and intelligent browser automation workflows orchestrated by AI agents:
-- Agents run as sandboxed WASM actors (Lunatic) for isolation and concurrency.
-- LLMs (local/cloud) provide reasoning, planning, and summarization.
-- BrowserBase serves as a robust, cloud-first MCP browser automation backend.
-- Ideal for research, monitoring, scraping, E2E testing, and agentic web workflows.
+Build a scalable, resilient, and intelligent distributed agent system leveraging:
+- Rust and WASM for secure, portable plugin development
+- Lunatic runtime for Erlang-like process isolation, supervisor trees, and rapid actor-based concurrency
+- NATS messaging for high-throughput, distributed agent communication (local and WebSocket for browser/WASM environments)
+- Integration of LLMs for reasoning, summarization, and planning—agents become truly intelligent, not just reactive
 
 ## The Scope
 
-- Implement a sample agent system with these components:
-  1. **Lunatic actor** (WASM/Rust) acting as agent/orchestrator.
-  2. **Integration with an LLM** for planning (prompting, summarization, next-action selection).
-  3. **HTTP API calls from Lunatic to BrowserBase** for browser control (open session, navigate, click, extract, screenshot, close).
-  4. **Loop**: LLM decides next step based on user/task objective and results from the previous browser step.
-  5. **Result aggregation** (collating and presenting agent actions + LLM reasoning as a report).
+- Create a distributed multi-agent system with these core capabilities:
+  1. **Agent processes** run as isolated WASM instances under Lunatic, managed by supervisors
+  2. **Messaging layer:** Dual mode—local mailboxes for intra-runtime, plus NATS for cluster-wide agent communication (TCP or WebSocket as needed)
+  3. **State management:** In-memory or file-based persistence per agent, pluggable backend
+  4. **LLM orchestration:** Agents invoke LLM APIs for task planning, adaptive reasoning, or intelligent summarization
+  5. **Scalability and Fault Tolerance:** Supervisor tree manages agent lifecycles; failed agents restart automatically
+  6. **Example use case:** Distributed agents search, scrape, summarize, or process data from multiple sources and coordinate via NATS
 
 ## Success Criteria
 
-- One or more Lunatic actors can start a browser session in BrowserBase, direct actions, and end session.
-- Agent(s) interact with an LLM to:
-  - Plan the sequence of navigations/interactions.
-  - Summarize findings from web automation.
-- The workflow is modular and extensible (plug in LLM, swap orchestration flows).
-- Works with real BrowserBase account/API keys and is easy to run/test.
+- Agents can be instantiated, supervised, and message-passed locally and across the network (NATS)
+- State is managed per agent, persists as required
+- LLM reasoning is included—agents use LLM calls for reasoning, summarization, planning workflow steps, or synthesizing distributed results
+- Demo: Run parallel agents that collect data, route results to a summarizer agent, which invokes an LLM and publishes output to cluster
 
 ## Context
 
-- [BrowserBase API & MCP documentation](https://docs.browserbase.com/integrations/mcp/introduction)
-- [Lunatic WASM runtime](https://lunatic.solutions/)
-- [Example Lunatic agent + HTTP Rust libraries (`ureq`)](https://docs.rs/ureq/)
-- [Calling OpenAI/Anthropic from Rust](https://docs.rs/ureq/latest/ureq/)
-- [LLM orchestration pattern](https://github.com/langchain-ai/langchain)
-- Example PRPs: [github.com/coleam00/context-engineering-intro](https://github.com/coleam00/context-engineering-intro)
+- [Project repository](https://github.com/srnarasim/rust-wasm-lunatic-nats)
+- [Lunatic docs](https://lunatic.solutions/docs/)
+- [NATS documentation](https://docs.nats.io/)
+- Sample LLM APIs (OpenAI, Anthropic, etc.)  
+  *Can be called from Rust agents using HTTP clients like `ureq`, or via Python as a subprocess/sidecar if desired*
 
 ## Implementation Blueprint
 
-1. **Agent Initialization:**
-   - Compile Rust agent to WASM; run using Lunatic runtime.
-   - Read config: BrowserBase API key, LLM (API or subprocess), target query.
-2. **Session Management:**
-   - Start session with BrowserBase API (`POST /sessions`).
-   - Store returned session ID.
-3. **Task Loop:**
-   - For each LLM-planned step:
-     - Send relevant BrowserBase API call (navigate, click, etc.).
-     - Receive and store browser output (DOM, screenshot, etc.).
-     - Query LLM with output + next goal to get next action or terminate.
-   - Repeat until LLM says stop or max steps reached.
-4. **Result Handling:**
-   - Upon workflow completion, collate all data.
-   - Use LLM to produce summary/report if needed.
-5. **Cleanup:**
-   - Close BrowserBase session.
+1. **Design:**
+   - Supervisor tree configuration (main supervisor, agent child processes)
+   - Pluggable state backend: ephemeral, file-based, or external store
+   - Choose local mailbox vs. NATS message routing per communication case
 
-## API Contracts & Data Flow
+2. **Agent workflow:**
+   - On spawn: Initialize state, subscribe to mailbox/NATS topic
+   - On message: Perform action (e.g., data processing, crawling), optionally call LLM for reasoning (“What should I do next given current data?”)
+   - Publish results (e.g., via NATS, to storage, or to next agent)
 
-- All browser actions via BrowserBase HTTP API per its documentation.
-- LLM calls via HTTP (OpenAI/Anthropic) or subprocess bridge for local models.
-- Data passed between Lunatic actor, BrowserBase, and LLM as JSON.
+3. **LLM integration:**
+   - Sample agent logic:
+     - Receive set of task results
+     - Compose LLM prompt and send to API (e.g., summarize findings, generate insight, decide next step)
+   - Handle responses, update state, publish results
+
+4. **Distributed messaging:**
+   - Use async-nats (TCP) or ws_stream_wasm (WebSocket) for NATS client
+   - Each agent subscribes/publishes on its subject
+   - Cluster can span native and WASM (browser) runtimes
+
+5. **Fault tolerance:**
+   - If an agent panics/crashes, supervisor auto-restarts with fresh state
+   - All messaging and persistent state survives agent failures
 
 ## Known Gotchas
 
-- Handle API/network errors gracefully; plan for retries/timeouts.
-- BrowserBase API key management: never hard-code in source, use environment variables.
-- LLM latency may introduce step lag; consider async task orchestration for scale.
-- Manage BrowserBase session limits and step quotas.
+- Ensure WASM/WASI networking permissions for NATS connectivity
+- Secure API keys for LLM providers
+- Network partitions: NATS auto-reconnect and robust event handling
+- LLM latency can introduce bottlenecks—consider async job queues or batching
 
 ## Test Requirements
 
-- Run end-to-end sample for simple workflows (e.g., “Go to github.com, search ‘rust mcp’, scrape repo names, summarize”).
-- Test with multiple agents in parallel (Lunatic actors).
-- Simulate network/API failures.
+- Run agents that:
+  - Distribute tasks via NATS, report results to summarizing agent
+  - Survive random failures (simulate crashes, auto-restart)
+  - Scale horizontally—hundreds of agents, multiple runtimes
+  - Demonstrate LLM-driven result synthesis (real or mocked API)
 
-## Example Tasks
+## Example Use Case
 
-- User: “Summarize top articles on ‘WASM-based browser automation’ from Hacker News using automated browsing.”
-- The agent and LLM will plan queries, navigate, extract, and summarize.
+- **Distributed Web Scraping:** Agents crawl assigned URLs, publish content via NATS, summarizer agent collects, calls LLM to produce insight, and publishes to results topic
+- **Collaborative Monitoring:** Multiple agents track sources (site, API, logs); aggregate and summarize via LLM agent
 
-## Documentation & References
+## Documentation & Reference Links
 
-- BrowserBase API & tools: https://docs.browserbase.com/integrations/mcp/tools
-- Lunatic actors & networking: https://lunatic.solutions/docs/net/
-- Rust HTTP (`ureq`): https://docs.rs/ureq/
-- OpenAI Chat API (for LLM): https://platform.openai.com/docs/api-reference/chat
+- [rust-wasm-lunatic-nats README](https://github.com/srnarasim/rust-wasm-lunatic-nats)
+- [Lunatic Supervisor Pattern](https://lunatic.solutions/docs/supervisor/)
+- [NATS — Distributed Messaging](https://docs.nats.io/)
+- [OpenAI API guide](https://platform.openai.com/docs/api-reference/chat)
+- [Sample multi-agent demo architecture](https://lunatic.solutions/blog/writing-rust-the-elixir-way-1.5-years-later/)
 
 ## Other Considerations
 
-- Ensure secure handling of API keys, session tokens, and sensitive data.
-- Make orchestration modular to allow plugging in different LLM providers or agentic flows.
-- Document clearly with sample config files and usage instructions.
-
+- Modular design allows swapping memory backend, LLM providers, messaging transports
+- Ensure compatibility with browser environments via WebSocket NATS
+- Document sample flows, agent configs, and LLM prompt patterns
 

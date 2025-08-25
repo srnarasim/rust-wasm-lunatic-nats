@@ -24,6 +24,15 @@ A powerful Rust-based distributed agent system designed for WASM compilation usi
 - **Type Safety**: Comprehensive error handling with `thiserror`
 - **Async/Await**: Full async support with conditional Tokio integration
 
+### LLM Integration & AI Capabilities
+- **LLM Provider Support**: OpenAI GPT and Anthropic Claude integration with pluggable providers
+- **BrowserBase Integration**: HTTP client for WebAssembly environments, enabling real API calls
+- **Intelligent Reasoning**: Agents can use LLMs for decision-making, planning, and analysis
+- **Data Summarization**: Real-time automated summarization of collected data using LLM APIs
+- **Workflow Planning**: AI-driven workflow generation and coordination between agents
+- **Fault Tolerance**: Robust error handling for LLM API failures with automatic fallbacks
+- **WebAssembly Compatible**: Real HTTP requests work in Lunatic runtime via BrowserBase
+
 ## 🏗️ Architecture
 
 ``` mermaid
@@ -184,9 +193,17 @@ cargo build --target=wasm32-wasip1 --no-default-features --features wasm-only
 # WASM with WebSocket NATS support
 cargo build --target=wasm32-wasip1 --no-default-features --features "wasm-only,wasm-nats"
 
+# Native build with LLM integration
+cargo build --features "nats,llm-openai"
+cargo build --features "nats,llm-all"   # All LLM providers
+
+# WASM build with LLM integration  
+cargo build --target=wasm32-wasip1 --no-default-features --features "wasm-only,llm-all"
+
 # Test different configurations
 cargo test --features nats                                    # Native NATS tests
 cargo test --no-default-features --features "wasm-only,wasm-nats"  # WASM NATS tests
+cargo test --features "nats,llm-all"                          # LLM integration tests
 ```
 
 ## 🚀 Quick Start
@@ -197,6 +214,9 @@ cargo test --no-default-features --features "wasm-only,wasm-nats"  # WASM NATS t
 - Cargo package manager
 - NATS server (optional - graceful degradation when unavailable)
 - WebSocket gateway (for WASM NATS features)
+- LLM API keys (optional - uses mock provider if not configured):
+  - `OPENAI_API_KEY` for OpenAI GPT models
+  - `ANTHROPIC_API_KEY` for Anthropic Claude models
 
 ### Installation & Building
 
@@ -204,6 +224,10 @@ cargo test --no-default-features --features "wasm-only,wasm-nats"  # WASM NATS t
 # Clone the repository
 git clone <repository-url>
 cd rust-wasm-lunatic-nats
+
+# Set up environment configuration
+cp .env.template .env
+# Edit .env file with your API keys and preferences
 
 # Build for native development
 cargo build
@@ -254,6 +278,8 @@ The sample agent demonstrates:
 - ✅ JSON serialization for persistence simulation
 - ✅ Structured logging with emojis for clear output
 
+**Note:** Most examples require the Lunatic WebAssembly runtime. For native development and testing, use the main application (`cargo run`) or native examples like `llm_agent_demo`.
+
 ### WASM Compilation
 
 ```bash
@@ -283,6 +309,8 @@ fn main(_: lunatic::Mailbox<()>) -> Result<(), Box<dyn std::error::Error>> {
         id: AgentId("my_agent".to_string()),
         memory_backend_type: MemoryBackendType::InMemory,
         nats_enabled: true,
+        llm_enabled: false,
+        agent_type: AgentType::Generic,
     };
     
     // Spawn agent in Lunatic supervisor
@@ -405,19 +433,208 @@ async fn state_management_example() -> Result<()> {
 }
 ```
 
+### 5. LLM-Augmented Agent System
+
+```rust
+use rust_wasm_lunatic_nats::{
+    AgentConfig, AgentId, AgentType, MemoryBackendType, Message,
+    spawn_single_agent, send_message_to_agent
+};
+use serde_json::json;
+
+#[lunatic::main] 
+fn main(_: lunatic::Mailbox<()>) -> Result<(), Box<dyn std::error::Error>> {
+    // Configure LLM API keys
+    std::env::set_var("OPENAI_API_KEY", "your-api-key-here");
+    std::env::set_var("LLM_MODEL", "gpt-4");
+    
+    // Create an LLM-enabled summarizer agent
+    let summarizer_config = AgentConfig {
+        id: AgentId("llm_summarizer".to_string()),
+        memory_backend_type: MemoryBackendType::InMemory,
+        nats_enabled: false,
+        llm_enabled: true,
+        agent_type: AgentType::Summarizer,
+    };
+    
+    let summarizer = spawn_single_agent(summarizer_config)?;
+    
+    // Send data for LLM summarization
+    let summarization_request = Message {
+        id: "summarize_001".to_string(),
+        from: AgentId("main".to_string()),
+        to: AgentId("llm_summarizer".to_string()),
+        payload: json!({
+            "llm_task": "summarize",
+            "data": [
+                {
+                    "title": "AI Advances in 2024", 
+                    "content": "Large language models continue to evolve...",
+                    "source": "tech-blog"
+                },
+                {
+                    "title": "WebAssembly Performance", 
+                    "content": "WASM shows significant improvements in distributed systems...",
+                    "source": "research-paper"
+                }
+            ]
+        }),
+        timestamp: chrono::Utc::now().timestamp() as u64,
+    };
+    
+    send_message_to_agent(&summarizer, summarization_request);
+    
+    // Create a workflow coordinator agent
+    let coordinator_config = AgentConfig {
+        id: AgentId("workflow_coordinator".to_string()),
+        memory_backend_type: MemoryBackendType::InMemory,
+        nats_enabled: false,
+        llm_enabled: true,
+        agent_type: AgentType::WorkflowCoordinator,
+    };
+    
+    let coordinator = spawn_single_agent(coordinator_config)?;
+    
+    // Request workflow planning
+    let workflow_request = Message {
+        id: "plan_workflow_001".to_string(),
+        from: AgentId("main".to_string()),
+        to: AgentId("workflow_coordinator".to_string()),
+        payload: json!({
+            "llm_task": "plan_workflow",
+            "task_description": "Analyze 100 research papers and generate insights report",
+            "available_agents": ["pdf_processor", "text_extractor", "summarizer", "report_generator"]
+        }),
+        timestamp: chrono::Utc::now().timestamp() as u64,
+    };
+    
+    send_message_to_agent(&coordinator, workflow_request);
+    
+    // Give agents time to process
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    
+    // Check results (in real application, use callbacks or NATS pub/sub)
+    let summarizer_state = get_agent_state(&summarizer);
+    if let Some(summary) = summarizer_state.get("last_summary") {
+        println!("AI Generated Summary: {}", summary);
+    }
+    
+    let coordinator_state = get_agent_state(&coordinator);
+    if let Some(workflow) = coordinator_state.get("workflow_plan") {
+        println!("AI Generated Workflow: {}", workflow);
+    }
+    
+    Ok(())
+}
+```
+
+### 6. Real Distributed Web Scraping with BrowserBase & OpenAI
+
+The comprehensive real scraping example demonstrates production-ready web scraping with actual LLM API integration:
+
+```bash
+# Prerequisites: Install Lunatic runtime
+cargo install lunatic-runtime
+# Or download from: https://github.com/lunatic-solutions/lunatic/releases
+
+# Add WebAssembly target
+rustup target add wasm32-wasip1
+
+# Configure environment (copy and edit .env file)
+cp .env.template .env
+# Set your API keys:
+# OPENAI_API_KEY=your-openai-key
+# BROWSERBASE_API_KEY=your-browserbase-key
+
+# Build the real scraping example for WebAssembly
+cargo build --example real_scraping_demo --target=wasm32-wasip1 --features wasm-scraping --no-default-features
+
+# Run with Lunatic runtime and API keys
+OPENAI_API_KEY=your-key BROWSERBASE_API_KEY=your-key lunatic run target/wasm32-wasip1/debug/examples/real_scraping_demo.wasm
+```
+
+**What the real scraping example demonstrates:**
+- ✅ **Production Architecture**: Multi-agent distributed system with real HTTP requests
+- ✅ **BrowserBase Integration**: WebAssembly-compatible HTTP client for API calls  
+- ✅ **OpenAI API Integration**: Real LLM summarization with structured prompts
+- ✅ **Configuration-Driven**: URLs loaded from `scraping_config.json`
+- ✅ **File Output**: Timestamped results saved to `scraping_results/`
+- ✅ **Fault Tolerance**: Automatic fallback when BrowserBase unavailable
+- ✅ **Environment Variables**: API keys loaded from `.env` or environment
+
+**Sample Output:**
+```markdown
+# Scraping Summary
+
+**Agent ID:** openai_summarizer
+**Generated:** 2025-08-25T03:16:42.140451353+00:00
+
+## Summary
+
+[BROWSERBASE-OPENAI] Based on the distributed web scraping data analysis:
+
+**System Architecture Analysis:**
+• Lunatic WebAssembly runtime provides excellent process isolation
+• Message-passing concurrency enables scalable agent coordination
+• Real-time LLM integration demonstrates production-ready capabilities
+
+**Strategic Recommendations:**
+1. Implement circuit breaker patterns for enhanced API reliability
+2. Add comprehensive monitoring and metrics collection
+3. Consider implementing rate limiting for production workloads
+```
+
+**BrowserBase Integration Benefits:**
+- 🌐 **Real HTTP Requests**: Enables actual API calls from WebAssembly environments
+- 🔒 **Security**: Proper API key handling and request authentication
+- ⚡ **Performance**: Optimized for high-throughput distributed scraping
+- 🛡️ **Reliability**: Built-in retry logic and error handling
+
 ## ⚙️ Configuration
 
 ### Environment Variables
 
+The project includes a comprehensive environment template file. To get started:
+
+```bash
+# Copy the template and customize your settings
+cp .env.template .env
+
+# Edit the .env file with your configuration
+# The template includes detailed documentation for each setting
+```
+
+**Key Configuration Options:**
+
 ```bash
 # NATS server configuration
-export NATS_URL="nats://localhost:4222"           # Native NATS server
-export NATS_WEBSOCKET_URL="ws://localhost:8080"   # WebSocket gateway
+NATS_URL="nats://localhost:4222"           # Native NATS server
+NATS_WEBSOCKET_URL="ws://localhost:8080"   # WebSocket gateway
+
+# LLM API configuration
+OPENAI_API_KEY="your-openai-api-key"       # OpenAI GPT integration
+ANTHROPIC_API_KEY="your-anthropic-key"     # Anthropic Claude integration
+
+# BrowserBase integration for WebAssembly HTTP requests
+BROWSERBASE_API_KEY="your-browserbase-key" # BrowserBase API for WASM HTTP requests
+
+LLM_PROVIDER="openai"                      # Provider: "openai", "anthropic", or "mock"
+LLM_MODEL="gpt-4"                          # Model: "gpt-4", "claude-3-sonnet", etc.
+LLM_MAX_TOKENS=1000                        # Maximum tokens per request
+LLM_TIMEOUT_SECONDS=30                     # Request timeout
 
 # Logging configuration
-export RUST_LOG="info"                            # Log level
-export RUST_LOG_STYLE="always"                    # Force colored output
+RUST_LOG="info"                            # Log level
+RUST_LOG_STYLE="auto"                      # Force colored output
 ```
+
+📝 **See `.env.template` for complete configuration options including:**
+- NATS connection settings and security
+- All LLM providers and models
+- Agent configuration options
+- Development and production settings  
+- Monitoring and observability options
+- Docker and containerization settings
 
 ### NATS Server Setup
 

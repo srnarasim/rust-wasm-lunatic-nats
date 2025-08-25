@@ -6,6 +6,8 @@ use std::time::Duration;
 
 // Include the library modules
 mod agent;
+mod http_client;  // Add missing http_client module
+mod llm_client;  
 mod memory; 
 mod nats_comm;
 mod supervisor;
@@ -14,9 +16,8 @@ mod wasm_nats;
 // Re-export commonly used items
 use agent::{AgentId, Message, StateAction};
 use nats_comm::{NatsConfig, NatsConnection};
-use wasm_nats::{WasmNatsConfig, WasmNatsConnection, WasmNatsPublisher};
 use supervisor::{
-    AgentConfig, MemoryBackendType, 
+    AgentConfig, MemoryBackendType, AgentType,
     spawn_agent_supervisor, spawn_single_agent,
     send_message_to_agent, send_state_action_to_agent,
     get_agent_state, shutdown_agent
@@ -39,6 +40,41 @@ enum Error {
     
     #[error("Custom error: {0}")]
     Custom(String),
+
+    // New LLM-related errors
+    #[error("LLM provider error: {0}")]
+    LLMProvider(String),
+    
+    #[error("LLM API timeout after {timeout}s")]
+    LLMTimeout { timeout: u64 },
+    
+    #[error("LLM rate limit exceeded: {0}")]
+    LLMRateLimit(String),
+    
+    #[error("Invalid LLM response format: {0}")]
+    LLMResponseFormat(String),
+    
+    #[error("Workflow validation error: {0}")]
+    WorkflowValidation(String),
+}
+
+impl Error {
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, 
+            Error::LLMTimeout { .. } | 
+            Error::LLMRateLimit(_) |
+            Error::Nats(_)
+        )
+    }
+
+    pub fn retry_delay_ms(&self) -> u64 {
+        match self {
+            Error::LLMTimeout { .. } => 1000,
+            Error::LLMRateLimit(_) => 5000,
+            Error::Nats(_) => 500,
+            _ => 0,
+        }
+    }
 }
 
 #[cfg(feature = "nats")]
@@ -68,16 +104,22 @@ async fn nats_main() -> Result<()> {
             id: AgentId("worker_agent_1".to_string()),
             memory_backend_type: MemoryBackendType::InMemory,
             nats_enabled: true,
+            llm_enabled: false,
+            agent_type: AgentType::Generic,
         },
         AgentConfig {
             id: AgentId("worker_agent_2".to_string()),
             memory_backend_type: MemoryBackendType::InMemory,
             nats_enabled: true,
+            llm_enabled: false,
+            agent_type: AgentType::Generic,
         },
         AgentConfig {
             id: AgentId("monitor_agent".to_string()),
             memory_backend_type: MemoryBackendType::InMemory,
             nats_enabled: false,
+            llm_enabled: false,
+            agent_type: AgentType::Generic,
         },
     ];
 
@@ -216,16 +258,22 @@ fn wasm_main() -> Result<()> {
             id: AgentId("worker_agent_1".to_string()),
             memory_backend_type: MemoryBackendType::InMemory,
             nats_enabled: true, // Can enable NATS via WebSocket in WASM mode
+            llm_enabled: false,
+            agent_type: AgentType::Generic,
         },
         AgentConfig {
             id: AgentId("worker_agent_2".to_string()),
             memory_backend_type: MemoryBackendType::InMemory,
             nats_enabled: true,
+            llm_enabled: false,
+            agent_type: AgentType::Generic,
         },
         AgentConfig {
             id: AgentId("monitor_agent".to_string()),
             memory_backend_type: MemoryBackendType::InMemory,
             nats_enabled: false,
+            llm_enabled: false,
+            agent_type: AgentType::Generic,
         },
     ];
 
@@ -349,6 +397,8 @@ async fn run_integration_tests() -> Result<()> {
         id: AgentId("test_agent".to_string()),
         memory_backend_type: MemoryBackendType::InMemory,
         nats_enabled: false,
+        llm_enabled: false,
+        agent_type: AgentType::Generic,
     };
 
     info!("Test agent config: {:?}", test_config);
@@ -373,6 +423,8 @@ mod integration_tests {
             id: AgentId("test_agent".to_string()),
             memory_backend_type: MemoryBackendType::InMemory,
             nats_enabled: true,
+            llm_enabled: false,
+            agent_type: AgentType::Generic,
         };
         
         assert_eq!(config.id.0, "test_agent");

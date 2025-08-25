@@ -1,0 +1,78 @@
+{
+  "scraping_targets": [
+    {
+      "id": "tech_news_1",
+      "url": "https://news.ycombinator.com",
+      "title": "Hacker News",
+      "description": "Latest tech news and discussions",
+      "priority": "high",
+      "agent_assignment": "web_scraper_1"
+    },
+    {
+      "id": "rust_blog",
+      "url": "https://blog.rust-lang.org",
+      "title": "Rust Language Blog",
+      "description": "Official Rust language updates and announcements",
+      "priority": "medium",
+      "agent_assignment": "web_scraper_2"
+    },
+    {
+      "id": "wasm_news",
+      "url": "https://webassembly.org/blog",
+      "title": "WebAssembly Blog",
+      "description": "WebAssembly developments and tutorials",
+      "priority": "medium",
+      "agent_assignment": "web_scraper_1"
+    },
+    {
+      "id": "distributed_systems",
+      "url": "https://distributed-systems.com",
+      "title": "Distributed Systems Resources",
+      "description": "Articles about distributed computing patterns",
+      "priority": "low",
+      "agent_assignment": "data_collector"
+    },
+    {
+      "id": "lunatic_updates",
+      "url": "https://lunatic.solutions/blog",
+      "title": "Lunatic Runtime Blog", 
+      "description": "Updates about the Lunatic WebAssembly runtime",
+      "priority": "high",
+      "agent_assignment": "web_scraper_2"
+    }
+  ],
+  "scraping_config": {
+    "max_concurrent_requests": 3,
+    "request_timeout_seconds": 30,
+    "retry_attempts": 2,
+    "user_agent": "Lunatic-Distributed-Scraper/1.0",
+    "respect_robots_txt": true,
+    "rate_limit_delay_ms": 1000
+  },
+  "llm_config": {
+    "summarization": {
+      "max_tokens": 500,
+      "temperature": 0.3,
+      "model": "gpt-3.5-turbo"
+    },
+    "workflow_planning": {
+      "max_tokens": 800,
+      "temperature": 0.5,
+      "model": "gpt-3.5-turbo"
+    },
+    "reasoning": {
+      "max_tokens": 600,
+      "temperature": 0.4,
+      "model": "gpt-3.5-turbo"
+    }
+  },
+  "output_config": {
+    "summary_file": "./scraping_results/summary.md",
+    "workflow_file": "./scraping_results/workflow_plan.json",
+    "raw_data_file": "./scraping_results/raw_data.json",
+    "create_directories": true,
+    "append_timestamp": true,
+    "format": "markdown",
+    "include_metadata": true
+  }
+}

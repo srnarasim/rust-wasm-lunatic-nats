@@ -33,6 +33,30 @@ impl Default for NatsConfig {
     }
 }
 
+impl NatsConfig {
+    pub fn from_env() -> Result<Self> {
+        Ok(Self {
+            url: std::env::var("NATS_URL")
+                .unwrap_or_else(|_| "nats://localhost:4222".to_string()),
+            timeout: Duration::from_secs(
+                std::env::var("NATS_TIMEOUT_SECONDS")
+                    .unwrap_or_else(|_| "10".to_string())
+                    .parse()
+                    .unwrap_or(10)
+            ),
+            max_reconnects: std::env::var("NATS_MAX_RECONNECTS")
+                .ok()
+                .and_then(|s| s.parse().ok()),
+            reconnect_delay: Duration::from_secs(
+                std::env::var("NATS_RECONNECT_DELAY_SECONDS")
+                    .unwrap_or_else(|_| "1".to_string())
+                    .parse()
+                    .unwrap_or(1)
+            ),
+        })
+    }
+}
+
 #[cfg(feature = "nats")]
 #[derive(Debug)]
 pub struct NatsConnection {
